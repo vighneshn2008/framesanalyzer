@@ -401,14 +401,46 @@ class RollingBodyApp(tk.Tk):
         parent.rowconfigure(0, weight=1)
 
         left = ttk.Frame(parent)
-        left.grid(row=0, column=0, sticky="nsw", padx=(0, 12))
+        left.grid(row=0, column=0, sticky="ns", padx=(0, 12))
+
+        # scrollable control column: everything fits even on short windows
+        controls_canvas = tk.Canvas(left, width=520, bg=PALETTE["bg"],
+                                    highlightthickness=0)
+        ysb = ttk.Scrollbar(left, orient="vertical", command=controls_canvas.yview)
+        controls_canvas.configure(yscrollcommand=ysb.set)
+        ysb.pack(side="right", fill="y")
+        controls_canvas.pack(side="left", fill="both", expand=True)
+        box = ttk.Frame(controls_canvas)
+        box_id = controls_canvas.create_window((0, 0), window=box, anchor="nw")
+
+        def _update_scrollregion(_e=None):
+            controls_canvas.configure(scrollregion=controls_canvas.bbox("all"))
+
+        def _resize_box(e):
+            controls_canvas.itemconfigure(box_id, width=e.width)
+
+        box.bind("<Configure>", _update_scrollregion)
+        controls_canvas.bind("<Configure>", _resize_box)
+
+        def _on_wheel(e):
+            controls_canvas.yview_scroll(int(-e.delta / 120), "units")
+
+        controls_canvas.bind("<Enter>", lambda e: controls_canvas.bind_all(
+            "<MouseWheel>", _on_wheel))
+        controls_canvas.bind("<Leave>", lambda e: controls_canvas.unbind_all(
+            "<MouseWheel>"))
+        box.bind("<Enter>", lambda e: controls_canvas.bind_all(
+            "<MouseWheel>", _on_wheel))
+        box.bind("<Leave>", lambda e: controls_canvas.unbind_all(
+            "<MouseWheel>"))
+
         right = ttk.LabelFrame(parent, text="Camera / video preview", padding=8)
         right.grid(row=0, column=1, sticky="nsew")
         right.rowconfigure(1, weight=1)
         right.columnconfigure(0, weight=1)
 
         # ---------------- left: control groups ----------------
-        g1 = ttk.LabelFrame(left, text="1. Solid", padding=8)
+        g1 = ttk.LabelFrame(box, text="1. Solid", padding=8)
         g1.pack(fill="x", pady=(0, 8))
         ttk.Label(g1, text="Solid:").pack(side="left")
         self.solid_cb = ttk.Combobox(g1, state="readonly", width=40)
@@ -416,7 +448,7 @@ class RollingBodyApp(tk.Tk):
         self.solid_cb.bind("<<ComboboxSelected>>",
                            lambda e: self._record_solid_changed())
 
-        g2 = ttk.LabelFrame(left, text="2. Video source", padding=8)
+        g2 = ttk.LabelFrame(box, text="2. Video source", padding=8)
         g2.pack(fill="x", pady=(0, 8))
         self.source_var = tk.StringVar(value="file")
         ttk.Radiobutton(g2, text="Existing video file", value="file",
@@ -466,7 +498,7 @@ class RollingBodyApp(tk.Tk):
         self.webcam_btn.pack(side="left")
         g2.columnconfigure(0, weight=1)
 
-        g3 = ttk.LabelFrame(left, text="3. END gate & tracking mode", padding=8)
+        g3 = ttk.LabelFrame(box, text="3. END gate & tracking mode", padding=8)
         g3.pack(fill="x", pady=(0, 8))
         self.mark_btn = ttk.Button(g3, text="Mark the END gate point",
                                    style="Primary.TButton",
@@ -512,7 +544,7 @@ class RollingBodyApp(tk.Tk):
         ttk.Label(psp, textvariable=self.persp_info_var, style="Muted.TLabel").pack(
             side="left", padx=6)
 
-        g4 = ttk.LabelFrame(left, text="4. Track & measure", padding=8)
+        g4 = ttk.LabelFrame(box, text="4. Track & measure", padding=8)
         g4.pack(fill="x", pady=(0, 8))
         self.show_preview = tk.BooleanVar(value=True)
         ttk.Checkbutton(g4, text="Preview live frames while tracking",
@@ -534,7 +566,7 @@ class RollingBodyApp(tk.Tk):
                   font=self.font_bold).grid(
             row=2, column=0, columnspan=2, sticky="w", pady=(8, 0))
 
-        g5 = ttk.LabelFrame(left, text="5. Save result as a trial", padding=8)
+        g5 = ttk.LabelFrame(box, text="5. Save result as a trial", padding=8)
         g5.pack(fill="x")
         self.trial_num_var = tk.StringVar(value="1")
         ttk.Label(g5, text="Trial:").pack(side="left")
@@ -614,6 +646,10 @@ class RollingBodyApp(tk.Tk):
                    command=lambda: self.review_step(1)).pack(side="left", padx=2)
         ttk.Button(tb, text="\u23ed>|", width=3,
                    command=lambda: self.review_step(10)).pack(side="left")
+        ttk.Button(tb, text="<- Release", width=10, style="Primary.TButton",
+                   command=self.review_jump_release).pack(side="left", padx=4)
+        ttk.Button(tb, text="END ->", width=8, style="Primary.TButton",
+                   command=self.review_jump_end).pack(side="left")
         self.review_slider_var = tk.IntVar(value=0)
         self.review_slider = ttk.Scale(tb, from_=0, to=100, orient="horizontal",
                                        variable=self.review_slider_var,
@@ -1744,6 +1780,42 @@ class RollingBodyApp(tk.Tk):
         self.review_play_var.set("\u25b6 Play")
         self._load_review_frame(rv["idx"] + delta)
 
+    def _jump_to_time_frame(self, time_ms):
+        """Frame index whose timestamp is closest to `time_ms` (real time,
+        so the slow-mo factor is folded back into video frame space)."""
+        rv = self.review
+        if rv is None:
+            return 0
+        fps = rv["fps"] or 30.0
+        return int(round(time_ms / 1000.0 * fps * self.slowmo_mult))
+
+    def review_jump_release(self):
+        rv = self.review
+        if rv is None or self.cv2_busy:
+            return
+        rv["playing"] = False
+        self.review_play_var.set("\u25b6 Play")
+        idx = self.review_jump_release_idx()
+        self._load_review_frame(idx)
+
+    def review_jump_release_idx(self):
+        if self._release_frame is not None:
+            return self._release_frame
+        if self.result is not None:
+            return self._jump_to_time_frame(self.result["start_time_ms"])
+        return 0
+
+    def review_jump_end(self):
+        rv = self.review
+        if rv is None or self.cv2_busy:
+            return
+        rv["playing"] = False
+        self.review_play_var.set("\u25b6 Play")
+        idx = 0
+        if self.result is not None:
+            idx = self._jump_to_time_frame(self.result["end_time_ms"])
+        self._load_review_frame(idx)
+
     def on_review_scrub(self, value):
         rv = self.review
         if rv is None:
@@ -1806,13 +1878,197 @@ class RollingBodyApp(tk.Tk):
                     f"(mean {mean:.1f} ms).\nSave anyway?"):
                 return
         s["trials_ms"][num - 1] = self.result["elapsed_ms"]
+        res = dict(self.result)
         dm.save_data(self.data)
         filled = sum(1 for t in s["trials_ms"] if t is not None)
         self.result = None
         self.result_var.set(
             f"Trial {num} saved for slot {s['slot']} ({filled}/3 recorded).")
         self.refresh_solid_list()
-        self.status(f"Saved trial {num} for slot {s['slot']}.")
+        self.status(f"Trial {num} saved for slot {s['slot']}. Saving proof video...")
+        self._launch_proof_export(s, num, res)
+
+    # ------------------------------------------------------------------
+    # Proof videos: per-trial folder of the annotated (marked) video
+    # ------------------------------------------------------------------
+    def _launch_proof_export(self, s, trial, res):
+        """Save an annotated proof video for the trial just stored, into
+        proofs/<Solid>/TrialN/trialN.avi (+ a metadata .txt)."""
+        if not self.video_path:
+            return
+        name = s["name"] or f"slot{s['slot']}"
+        safe = "".join(c if c.isalnum() or c in " -_" else "_"
+                       for c in name).strip().replace(" ", "_")
+        out_dir = os.path.join("proofs", f"Slot{s['slot']}_{safe}", f"Trial{trial}")
+        try:
+            os.makedirs(out_dir, exist_ok=True)
+        except OSError:
+            return
+        out_path = os.path.join(out_dir, f"trial{trial}.avi")
+        args = {
+            "video_path": self.video_path,
+            "source": os.path.basename(self.video_path),
+            "out_path": out_path,
+            "out_dir": out_dir,
+            "mode": self.run_mode,
+            "timeline": (dict(self.box_timeline) if self.run_mode == "box"
+                         else dict(self.timeline)),
+            "fps": self.fps,
+            "slowmo_mult": self.slowmo_mult,
+            "H": self.H,
+            "box": self.box,
+            "box_gates": list(self.box_gates) if self.box_gates else None,
+            "gate": list(self.gate_points) if self.gate_points else None,
+            "start_idx": self.box_start if self.run_mode == "box" else 0,
+            "result": res,
+            "crossing_text": self.crossing_text or "",
+            "release_frame": self._release_frame,
+            "origin": self.trajectory[0][1:3] if self.trajectory else None,
+            "head": f"Slot {s['slot']}: {name}  -  Trial {trial}",
+            "slot": s["slot"], "name": name, "trial": trial,
+        }
+        self._cv2_worker(lambda: self._export_proof(args), self._on_proof_done)
+
+    def _export_proof(self, a):
+        """Background job: re-read the source video and write an annotated
+        proof copy (gate, tracked object, real-time clock, result) for a trial."""
+        cap = cv2.VideoCapture(a["video_path"])
+        if not cap.isOpened():
+            raise IOError(f"Could not open {a['video_path']} for the proof video.")
+
+        fps = a["fps"] or 30.0
+        if a["start_idx"]:
+            for _ in range(a["start_idx"]):
+                if not cap.read()[0]:
+                    break
+
+        writer = None
+        try:
+            ret, frame = cap.read()
+            if not ret:
+                raise IOError("Could not read frames for the proof video.")
+            h, w = frame.shape[:2]
+            writer = self._make_writer(a["out_path"], fps, w, h)[0]
+            if writer is None:
+                raise IOError("Could not create the proof video writer.")
+
+            fidx = a["start_idx"]
+            while True:
+                if writer is not None:
+                    self._draw_proof_overlay(frame, fidx, a)
+                    writer.write(frame)
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                fidx += 1
+        finally:
+            cap.release()
+            if writer is not None:
+                writer.release()
+
+        meta = (
+            "Rolling body experiment - annotated proof video\n"
+            "================================================\n"
+            f"Solid        : {a['name']} (slot {a['slot']})\n"
+            f"Trial        : {a['trial']}\n"
+            f"Measured time: {a['result']['elapsed_ms']} ms (real time)\n"
+            f"  release    : {a['result']['start_time_ms']} ms\n"
+            f"  END gate   : {a['result']['end_time_ms']} ms\n"
+            f"Method       : {a['result'].get('method', a['mode'])}\n"
+            f"Video FPS    : {a['fps']:.3f}\n"
+            f"Slow-mo      : {a['slowmo_mult']:g}x\n"
+            f"Source video : {a['source']}\n"
+            f"Proof video  : {os.path.abspath(a['out_path'])}\n"
+            f"Exported     : {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+        )
+        with open(os.path.join(a["out_dir"], f"trial{a['trial']}.txt"), "w") as f:
+            f.write(meta)
+        return a["out_path"]
+
+    def _draw_proof_overlay(self, frame, fidx, a):
+        """Overlay the gate, tracked object and real-time clock on one proof frame."""
+        h, w = frame.shape[:2]
+        result = a["result"]
+        slowmo = a["slowmo_mult"]
+        fps = a["fps"] or 30.0
+
+        if a["mode"] == "box":
+            gate, box = a["box_gates"], a["box"]
+            if gate and box is not None:
+                try:
+                    _, u, _ = box_tracker.gate_axis(box, gate[0], H=a["H"])
+                    box_tracker._draw_gate_line(frame, gate[0], u, (0, 255, 0), H=a["H"])
+                except ValueError:
+                    pass
+            bb = a["timeline"].get(fidx)
+            t_ms = fidx / fps * 1000.0 / slowmo
+            if result:
+                r = result
+                if t_ms < r["start_time_ms"]:
+                    col, state = (255, 200, 0), "at rest"
+                elif t_ms <= r["end_time_ms"]:
+                    col, state = (255, 255, 0), "RELEASED / TIMING"
+                else:
+                    col, state = (0, 255, 0), "END crossed"
+                cv2.putText(frame, state, (12, 50), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.7, col, 2)
+            else:
+                col, state = (255, 200, 0), ""
+            if bb is not None:
+                x, y, bw, bh = [int(round(v)) for v in bb]
+                cv2.rectangle(frame, (x, y), (x + bw, y + bh), col, 2)
+            if result:
+                cv2.circle(frame, (w - 150, 30), 8, (255, 200, 0), 2)
+                cv2.circle(frame, (w - 105, 30), 8, (255, 255, 0), 2)
+                cv2.circle(frame, (w - 60, 30), 8, (0, 255, 0), 2)
+        else:
+            if a["gate"]:
+                (ex, ey) = a["gate"][0]
+                cv2.circle(frame, (ex, ey), 8, (0, 0, 255), -1)
+                if a["H"] is None:
+                    cv2.line(frame, (ex, 0), (ex, frame.shape[0]), (0, 0, 255), 1)
+                elif a["origin"] is not None:
+                    o = perspective.transform_point(a["H"], a["origin"])
+                    g = perspective.transform_point(a["H"], (ex, ey))
+                    d = g - o
+                    level = float(np.linalg.norm(d))
+                    if level > 1e-6:
+                        u = d / level
+                        p1, p2 = box_tracker.gate_line_points(
+                            (ex, ey), u, H=a["H"], length=level * 1.2)
+                        cv2.line(frame, tuple(int(v) for v in p1),
+                                 tuple(int(v) for v in p2), (0, 0, 255), 1,
+                                 cv2.LINE_AA)
+            ct = a["timeline"].get(fidx)
+            if ct is not None:
+                cx, cy = ct
+                colour = (0, 255, 0)
+                if a["release_frame"] is not None and fidx >= a["release_frame"]:
+                    colour = (0, 255, 255)
+                cv2.circle(frame, (int(cx), int(cy)), 6, colour, -1)
+                cv2.circle(frame, (int(cx), int(cy)), 10, colour, 1)
+
+        t_sec = fidx / fps / slowmo
+        timer = f"t = {t_sec:.3f} s"
+        (tw, th), _ = cv2.getTextSize(timer, cv2.FONT_HERSHEY_SIMPLEX, 1.1, 2)
+        cv2.putText(frame, timer, (w - tw - 18, 34),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.1, (255, 255, 0), 2)
+        cv2.putText(frame, a["head"], (12, 26), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6, (255, 255, 255), 1)
+        cv2.putText(frame, a["source"], (12, 44), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.45, (160, 200, 255), 1)
+        if a["crossing_text"]:
+            cv2.putText(frame, a["crossing_text"], (12, h - 16),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 120, 0), 2)
+
+    def _on_proof_done(self, payload):
+        if isinstance(payload, str) and payload.startswith("__comerror__"):
+            messagebox.showerror("Proof video",
+                                 "Could not save the annotated proof video:\n"
+                                 + payload)
+            self.status("Proof video failed.")
+            return
+        self.status(f"Proof video saved: {os.path.abspath(payload)}")
 
     # ------------------------------------------------------------------
     # Misc helpers / state

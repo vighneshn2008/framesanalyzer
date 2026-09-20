@@ -99,6 +99,34 @@ def percent_error(experimental, theoretical):
     return abs(experimental - theoretical) / abs(theoretical) * 100.0
 
 
+def theoretical_time_ms(distance_m, theta_deg, mass_kg, radius_m, i_theory):
+    """
+    Predicted release-to-gate time for pure rolling (no losses, no slipping):
+
+        a      = g*sin(theta) / (1 + I/(m*R^2))
+        t      = sqrt(2*distance / a)
+
+    Returns milliseconds. Raises ValueError on non-physical inputs.
+    """
+    if not distance_m or distance_m <= 0:
+        raise ValueError("distance_m must be a positive number")
+    if theta_deg is None:
+        raise ValueError("theta_deg must be set")
+    if not mass_kg or mass_kg <= 0:
+        raise ValueError("mass_kg must be a positive number")
+    if not radius_m or radius_m <= 0:
+        raise ValueError("radius_m must be a positive number")
+    if i_theory is None or i_theory < 0:
+        raise ValueError("I_theory must be set")
+    denom = 1.0 + i_theory / (mass_kg * (radius_m ** 2))
+    if denom <= 0:
+        raise ValueError("I/(mR^2) has no physical solution")
+    a = G * math.sin(math.radians(theta_deg)) / denom
+    if a <= 0:
+        raise ValueError("incline angle must give a positive acceleration")
+    return math.sqrt(2.0 * distance_m / a) * 1000.0
+
+
 def average_time_ms(trials_ms):
     """Average of whichever of the (up to 3) trial times are filled in."""
     valid = [t for t in trials_ms if t is not None]

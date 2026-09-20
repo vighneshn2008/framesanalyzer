@@ -57,13 +57,15 @@ def build_results_table(data):
     """
     Builds the full comparison DataFrame with one row per solid:
     Solid | Trial1 | Trial2 | Trial3 | Avg Time (ms) | Distance (m) |
-    Mass (kg) | Radius (m) | Theta (deg) | a_exp (m/s^2) |
+    Mass (kg) | Radius (m) | Theta (deg) | T_theory (ms) |
+    a_exp (m/s^2) |
     I_exp (kg.m^2) | I_corr (kg.m^2) | Correction (kg.m^2) |
     I_theory (kg.m^2) | % Error | % Error corr | Loss model
 
     I_exp is the measured moment of inertia with all losses folded in;
     I_corr removes the enabled friction / air-drag losses (equal to I_exp
     when no losses are enabled). Correction = I_exp - I_corr.
+    T_theory is the predicted release-to-gate time for loss-free pure rolling.
     """
     rows = []
     for s in data["solids"]:
@@ -79,8 +81,17 @@ def build_results_table(data):
 
         a_exp = i_exp = err = None
         i_corr = err_corr = None
+        t_theory = None
         loss_model = []
         correction = None
+        if (s["distance_m"] and s["mass_kg"] and s["radius_m"]
+                and s["theta_deg"] is not None and s["I_theory"] is not None):
+            try:
+                t_theory = calc.theoretical_time_ms(
+                    s["distance_m"], s["theta_deg"], s["mass_kg"],
+                    s["radius_m"], s["I_theory"])
+            except (ValueError, ZeroDivisionError):
+                pass
         ready = (avg_ms and s["distance_m"] and s["mass_kg"] and
                  s["radius_m"] and s["theta_deg"] is not None)
         if ready:
@@ -129,6 +140,7 @@ def build_results_table(data):
             "Mass (kg)": s["mass_kg"],
             "Radius (m)": s["radius_m"],
             "Theta (deg)": s["theta_deg"],
+            "T_theory (ms)": round(t_theory, 3) if t_theory else None,
             "a_exp (m/s^2)": round(a_exp, 5) if a_exp else None,
             "I_exp (kg.m^2)": f"{i_exp:.4e}" if i_exp is not None else None,
             "I_corr (kg.m^2)": f"{i_corr:.4e}" if i_corr is not None else None,
