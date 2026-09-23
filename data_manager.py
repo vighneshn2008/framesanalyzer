@@ -1,7 +1,7 @@
 """
 data_manager.py
 ---------------
-Handles persistent JSON storage of the 8 solids and their trial data,
+Handles persistent JSON storage of the 11 solids and their trial data,
 plus building/exporting the final comparison table (Excel or CSV).
 """
 
@@ -12,7 +12,7 @@ import pandas as pd
 import calculations as calc
 
 DATA_FILE = "rolling_bodies_data.json"
-MAX_SOLIDS = 8
+MAX_SOLIDS = 11
 
 
 def _default_solid(slot_no):
@@ -37,7 +37,14 @@ def load_data(path=DATA_FILE):
         with open(path, "r") as f:
             data = json.load(f)
     else:
-        data = {"solids": [_default_solid(i + 1) for i in range(MAX_SOLIDS)]}
+        data = {"solids": []}
+    solids = data.setdefault("solids", [])
+    have = {s.get("slot") for s in solids}
+    for i in range(MAX_SOLIDS):
+        slot = i + 1
+        if slot not in have:
+            solids.append(_default_solid(slot))
+    solids.sort(key=lambda s: s.get("slot") or 0)
     return data
 
 

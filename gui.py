@@ -330,7 +330,7 @@ class RollingBodyApp(tk.Tk):
         ttk.Label(left, text="Solids (click to select):",
                   font=self.font_h2).pack(anchor="w", pady=(0, 4))
         self.solid_tree = ttk.Treeview(left, columns=("slot", "name", "filled"),
-                                       show="headings", height=8, selectmode="browse")
+                                       show="headings", height=11, selectmode="browse")
         for c, w, text, anchor in (("slot", 50, "Slot", "center"),
                                    ("name", 210, "Name", "w"),
                                    ("filled", 100, "Trials", "center")):

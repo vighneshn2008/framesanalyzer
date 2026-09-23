@@ -10,7 +10,7 @@ Menu:
 1. Configure a solid   (name / mass / radius / incline angle / gate distance / I_theory)
 2. Record a trial      (mark 2 points on a video, auto-track object, get time in ms)
 3. View a solid's data
-4. Generate & export comparison table for all 8 solids
+4. Generate & export comparison table for all 11 solids
 5. Exit
 """
 
@@ -28,7 +28,7 @@ def choose_slot(data):
         label = s["name"] or "(unconfigured)"
         filled = sum(1 for t in s["trials_ms"] if t is not None)
         print(f"  {s['slot']}. {label}   [{filled}/3 trials recorded]")
-    raw = input("Choose slot number (1-8): ").strip()
+    raw = input(f"Choose slot number (1-{dm.MAX_SOLIDS}): ").strip()
     try:
         slot = int(raw)
     except ValueError:
@@ -248,7 +248,7 @@ MENU = """
 1. Configure a solid (name/mass/radius/theta/distance/I_theory)
 2. Record a trial (video -> automatic time measurement)
 3. View a solid's data
-4. Generate & export comparison table (all 8 solids)
+4. Generate & export comparison table (all 11 solids)
 5. Exit
 """
 
