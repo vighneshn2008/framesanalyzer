@@ -1,2 +1,16 @@
 __pycache__/
 *.pyc
+
+# experiment data (measurement results, videos, reports)
+proofs/
+rolling_bodies_data*.json
+*.avi
+*.pdf
+
+# build artifacts / exports
+*.zip
+*.xlsx
+*.csv
+
+# misc
+.DS_Store
